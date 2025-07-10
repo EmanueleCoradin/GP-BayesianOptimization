@@ -1,118 +1,246 @@
-import numpy as np
-from numpy.typing import NDArray
-from typing import TypeAlias
+import jax.numpy as jnp
+from jax import grad, jit, vmap
 from typing import Callable
+from jax.scipy.linalg import solve
+from jax.scipy.optimize import minimize
+import matplotlib.pyplot as plt
+import jax.random as random
+
 
 # Type aliases
-d_Vector: TypeAlias = NDArray[np.float64]
-n_Vector: TypeAlias = NDArray[np.float64]
-n_by_d_Matrix: TypeAlias = NDArray[np.float64]
-n_by_n_Matrix: TypeAlias = NDArray[np.float64]
-d_VectorToReal: TypeAlias = Callable[[d_Vector], float]
+d_vector = jnp.ndarray
+n_vector = jnp.ndarray
+n_by_d_matrix = jnp.ndarray
+n_by_n_matrix = jnp.ndarray
+d_vector_to_real = Callable[[d_vector], float]
+
 
 # ===============================
-#      FUNCTION DEFINITIONS
+# CONSTANTS AND SAMPLE DATA
 # ===============================
 
-# -------------------------------
-#        Bayesian Optimization
-# -------------------------------
+EPSILON = 1e-12  # small constant to regularize operations
+TOL = 1e-5
+KEY = random.PRNGKey(0)
+NOISE_STD = 1e-1  # small noise standard deviation
 
 
-def BayesianOptimization(X, y, alpha):
-    # TODO: Implement Bayesian Optimization loop
-    #select x_new from optimizing alpha
-    #x_new = argmax(alpha)
-    #y_new = f(x_new)
-    #update X and y
-    #X = np.append(X, x_new)
-    #y = np.append(y, y_new)
-    #Update statistical model
-
-    return (X, y, alpha)
+def f_true(x):
+    """True function to be approximated."""
+    return jnp.sin(x)
 
 
-def MaternKernel(x: d_Vector, x_p: d_Vector, theta_0: float,
-                 theta: d_Vector) -> float:
+X = jnp.array([[1.0], [2.0], [3.0], [4.0], [5.0]])
+y = f_true(X.flatten())
+noise = NOISE_STD * random.normal(KEY, shape=y.shape)
+y += noise
+X_new = jnp.linspace(-5, 10, 200).reshape(-1, 1)
+
+
+# ===============================
+# FUNCTION DEFINITIONS
+# ===============================
+
+
+def bayesian_optimization(X, y, alpha):
+    """
+    Placeholder for Bayesian Optimization loop.
+    Select new points to sample based on acquisition function alpha.
+    """
+    # TODO: Implement Bayesian Optimization loop:
+    # x_new = argmax(alpha)
+    # y_new = f(x_new)
+    # Update X and y with new sample
+    # X = np.append(X, x_new)
+    # y = np.append(y, y_new)
+    # Update statistical model
+
+    return X, y, alpha
+
+
+def matern_kernel(x: d_vector, x_p: d_vector, theta_0: float, theta: d_vector):
     """
     Computes the Matérn 5/2 kernel between two d-dimensional input vectors.
     """
-    assert x.ndim == 1 and x.shape == x_p.shape == theta.shape, \
+    assert x.ndim == 1 and x.shape == x_p.shape == theta.shape, (
         "x, x_p, and theta must be 1D arrays of the same shape"
-    Lambda = np.diag(np.power(theta, 2))
+    )
     delta = x - x_p
-    r = np.sqrt(delta.T @ Lambda @ delta)
-    k = theta_0**2 * (1 + np.sqrt(5) * r +
-                      (5 * r**2) / 3) * np.exp(-np.sqrt(5) * r)
-    return float(k)
+    scaled_delta = delta * theta
+    r = jnp.sqrt(jnp.sum(scaled_delta ** 2) + EPSILON)
 
-
-def MatrixKernel(X: n_by_d_Matrix, theta_0: float,
-                 theta: d_Vector) -> n_by_n_Matrix:
-    """
-    Computes the kernel matrix K for a set of input vectors using the Matérn 5/2 kernel.
-    """
-    n = X.shape[0]
-    K = np.zeros((n, n), dtype=np.float64)
-    for i in range(n):
-        for j in range(i, n):
-            val = MaternKernel(X[i], X[j], theta_0, theta)
-            K[i, j] = val
-            K[j, i] = val
-    return K
-
-
-def CovarianceVector(X: n_by_d_Matrix, x: d_Vector, theta_0: float,
-                     theta: d_Vector) -> n_Vector:
-    k = np.array([MaternKernel(x, x_p, theta_0, theta) for x_p in X])
+    sqrt5_r = jnp.sqrt(5.0) * r
+    k = (
+        theta_0 ** 2
+        * (1 + sqrt5_r + (5.0 / 3.0) * r ** 2)
+        * jnp.exp(-sqrt5_r)
+    )
     return k
 
 
-def Posterior_Functions(x: d_Vector, X: n_by_d_Matrix, y: n_Vector,
-                        theta_0: float, theta: d_Vector, mu_0: d_VectorToReal,
-                        sigma_squared: float) -> tuple[float, float]:
+@jit
+def compute_kernel_matrix(
+    X: n_by_d_matrix, theta_0: float, theta: d_vector
+) -> n_by_n_matrix:
+    """
+    Computes the kernel matrix K for a set of input vectors using the Matérn 5/2 kernel.
+    """
+    def kernel_row(x):
+        return vmap(lambda x_p: matern_kernel(x, x_p, theta_0, theta))(X)
+
+    return vmap(kernel_row)(X)
+
+
+def compute_covariance_vector(
+    X: n_by_d_matrix, x: d_vector, theta_0: float, theta: d_vector
+) -> n_vector:
+    """Computes covariance vector k(x, X) between new point x and dataset X."""
+    return vmap(lambda x_p: matern_kernel(x, x_p, theta_0, theta))(X)
+
+
+def mu_0(x: d_vector) -> float:
+    """Prior mean function, here constant 1.0."""
+    return 1.0
+
+
+def compute_posterior(
+    x: d_vector,
+    X: n_by_d_matrix,
+    y: n_vector,
+    theta_0: float,
+    theta: d_vector,
+    mu_0: d_vector_to_real,
+    sigma_squared: float,
+):
     """
     Computes the posterior mean and variance of the GP at a new point x.
     """
-    k = CovarianceVector(X, x, theta_0, theta)
-    K = MatrixKernel(X, theta_0, theta)
-    K += np.eye(K.shape[0]) * sigma_squared
-    K_inv = np.linalg.inv(K)
+    k = compute_covariance_vector(X, x, theta_0, theta)
+    K = compute_kernel_matrix(X, theta_0, theta)
+    K += jnp.eye(X.shape[0]) * sigma_squared
+    m = vmap(mu_0)(X)
+    mu_n = mu_0(x) + k.T @ solve(K, y - m)
+    sigma_squared_n = matern_kernel(x, x, theta_0, theta) - k.T @ solve(K, k)
 
-    m = np.array([mu_0(xi) for xi in X])
-    mu_n = mu_0(x) + k.T @ K_inv @ (y - m)
-    sigma_squared_n = MaternKernel(x, x, theta_0, theta) - k.T @ K_inv @ k
-
-    return float(mu_n), float(sigma_squared_n)
+    return mu_n, sigma_squared_n
 
 
-# -------------------------------
-#       PLOTTING FUNCTIONS
-# -------------------------------
+def marginal_likelihood(params: jnp.ndarray, X: n_by_d_matrix, y: n_vector):
+    """
+    Computes the negative log marginal likelihood of the GP model.
+    """
+    theta_0 = params[0]
+    theta = params[1:-1]
+    sigma_squared = params[-1]
+    K = compute_kernel_matrix(X, theta_0, theta) + jnp.eye(X.shape[0]) * sigma_squared
+    m = vmap(mu_0)(X)
+    y_c = y - m
+
+    term1 = -0.5 * y_c.T @ solve(K, y_c)
+    term2 = -0.5 * jnp.linalg.slogdet(K)[1]
+    term3 = -0.5 * X.shape[0] * jnp.log(2 * jnp.pi)
+
+    return -(term1 + term2 + term3)  # negative log-likelihood
+
+
+def marginal_likelihood_log(params_log, X, y):
+    """
+    Wrapper to optimize marginal likelihood in log parameter space.
+    """
+    params = jnp.exp(params_log)
+    return marginal_likelihood(params, X, y)
+
 
 # ===============================
-#    CONSTANTS AND SAMPLE DATA
+# PLOTTING FUNCTIONS
 # ===============================
 
-# Sample data (n=5, d=1)
-X = np.array([[1], [2], [3], [4], [5]], dtype=np.float64)
-y = np.power(X, 2).flatten()  # Fix: call flatten()
-theta = np.array([0.1], dtype=np.float64)  # length scale vector (d=1)
-theta_0 = 1.0
-alpha = np.zeros(X.shape[0])
-beta = np.zeros(X.shape[0])
-sigma_squared = 1.0  # observation noise variance
 
+def plot_gp_posterior(
+    X_train: n_by_d_matrix,
+    y_train: n_vector,
+    X_new: jnp.ndarray,
+    posterior_fn: Callable,
+    theta_0: float,
+    theta: d_vector,
+    mu_0: d_vector_to_real,
+    sigma_squared: float,
+    noise_std: float,
+    true_fn: Callable = None,
+    xlabel="x",
+    ylabel="f(x)",
+    title="Gaussian Process reconstruction of unknown function",
+):
+    """
+    Plots GP posterior mean and confidence interval along with training data,
+    and optionally the true underlying function.
+    """
+    posterior_means, posterior_vars = vmap(
+        lambda x: posterior_fn(x, X_train, y_train, theta_0, theta, mu_0, sigma_squared)
+    )(X_new)
 
-def mu_0(x: d_Vector) -> float:
-    prior = 1.0
-    return prior  # prior mean
+    posterior_means = posterior_means.flatten()
+    posterior_stds = jnp.sqrt(posterior_vars.flatten())
+
+    plt.figure(figsize=(10, 6))
+    plt.errorbar(
+        X_train.flatten(),
+        y_train,
+        yerr=noise_std,
+        fmt="o",
+        color="red",
+        label="Training data",
+    )
+    plt.plot(X_new.flatten(), posterior_means, "b-", label="GP mean prediction")
+    plt.fill_between(
+        X_new.flatten(),
+        posterior_means - 2 * posterior_stds,
+        posterior_means + 2 * posterior_stds,
+        color="blue",
+        alpha=0.2,
+        label="95% confidence interval",
+    )
+
+    if true_fn is not None:
+        y_true = true_fn(X_new.flatten())
+        plt.plot(X_new.flatten(), y_true, "g--", label="True function")
+
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    plt.legend()
+    plt.title(title)
+    plt.show()
 
 
 # ===============================
-#           MAIN CODE
+# MAIN CODE
 # ===============================
 
-print(
-    Posterior_Functions(np.array([6], dtype=np.float64), X, y, theta_0, theta,
-                        mu_0, sigma_squared))
+params_init = jnp.array([1.0, 1.0, 1.0])
+params_init_log = jnp.log(params_init)
+
+result = minimize(
+    marginal_likelihood_log, params_init_log, args=(X, y), method="BFGS", tol=TOL
+)
+
+params_opt = jnp.exp(result.x)
+theta_0 = params_opt[0]
+theta = params_opt[1:-1]
+sigma_squared = params_opt[-1]
+
+print("Optimization success:", result.success)
+print("Final params (original scale):", params_opt)
+print("Final negative log-likelihood:", result.fun)
+
+plot_gp_posterior(
+    X,
+    y,
+    X_new,
+    compute_posterior,
+    theta_0,
+    theta,
+    mu_0,
+    sigma_squared,
+    NOISE_STD,
+    true_fn=f_true,
+)
