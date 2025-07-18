@@ -2,6 +2,8 @@ import jax.numpy as jnp
 import jax.random as random
 import jax.numpy as jnp
 from typing import Callable
+# TEMP
+import time
 
 d_vector = jnp.ndarray
 n_vector = jnp.ndarray
@@ -29,7 +31,11 @@ def f_rosenbrock(x: d_vector) -> float:
 def f_bird(x: d_vector) -> float:
     """Bird function."""
     x1, x2 = x[0], x[1]
-    return -jnp.sin(x1) * jnp.exp(1-jnp.cos(x2))**2 + jnp.cos(x2) *jnp.exp (1-jnp.sin(x1))**2 + (x1 - x2)**2 
+    return -(jnp.sin(x1) * jnp.exp(1-jnp.cos(x2))**2 + jnp.cos(x2) *jnp.exp (1-jnp.sin(x1))**2 + (x1 - x2)**2 )
+
+def f_ursem(x: d_vector) -> float:
+    x1,x2=x[0],x[1]
+    return -(-0.9* x1**2 + (x2**2-4.5*x2**2)*x1*x2+4.7*jnp.cos(3*x1-x2**2*(2+x1))*jnp.sin(2.5*x1))
 
 def f_sin(x):
     """True function to be approximated."""
@@ -43,18 +49,24 @@ def load_initial_data(function: str = "f_hosaki"):
         "f_hosaki": f_hosaki,
         "f_rosenbrock": f_rosenbrock,
         "f_bird": f_bird,
+        "f_ursem": f_ursem,
     }
 
     bounds_map = {
         "f_hosaki": (jnp.array([0.0, 0.0]), jnp.array([5.0, 6.0])),
         "f_rosenbrock": (jnp.array([-1.0, -1.0]), jnp.array([0.5, 1.0])),
         "f_bird": (jnp.array([-6.0, -6.0]), jnp.array([6.0, 6.0])),
+        "f_ursem":(jnp.array([-1.0,-1.0]),jnp.array([1.5,1.5]))
     }
+    # TEMP
+    # key = random.PRNGKey(int(time.time()))
+    # key1, key2 = random.split(key)
 
     f = function_map.get(function.lower(), f_hosaki)
 
     minval, maxval = bounds_map.get(function.lower(), (jnp.array([0.0, 0.0]), jnp.array([5.0, 6.0])))
 
+    # TEMP: less points initial 
     X = random.uniform(
         key1,
         shape=(7, 2),

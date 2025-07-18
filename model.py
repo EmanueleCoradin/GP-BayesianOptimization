@@ -1,7 +1,7 @@
 import jax.numpy as jnp
 from jax import vmap, jit
 from jax.scipy.linalg import solve
-from config import EPSILON, d_vector, n_vector, n_by_d_matrix, n_by_n_matrix
+from config import EPSILON, d_vector, n_vector, n_by_d_matrix, n_by_n_matrix, d_vector_to_real
 
 @jit
 def matern_kernel(x: d_vector, x_p: d_vector, theta_0: float, theta: d_vector):
@@ -21,7 +21,7 @@ def matern_kernel(x: d_vector, x_p: d_vector, theta_0: float, theta: d_vector):
 @jit
 def compute_kernel_matrix(X: n_by_d_matrix, theta_0: float,
                           theta: d_vector) -> n_by_n_matrix:
-    """-
+    """
     Computes the kernel matrix K for a set of input vectors using the Matérn 5/2 kernel.
     """
 
@@ -36,14 +36,23 @@ def compute_covariance_vector(X: n_by_d_matrix, x: d_vector, theta_0: float,
     """Computes covariance vector k(x, X) between new point x and dataset X."""
     return vmap(lambda x_p: matern_kernel(x, x_p, theta_0, theta))(X)
 
+#def mu_0(y: n_vector) -> float:
+#    """Prior mean function, here constant 1.0."""
+#    return jnp.mean(y)
+
+def mu_0_factory(y_train: n_vector):
+    mu = jnp.mean(y_train)
+    return lambda x: mu
+
+
 def compute_posterior(
     x: d_vector,
     X: n_by_d_matrix,
     y: n_vector,
     theta_0: float,
     theta: d_vector,
-    mu_0: float,
-    sigma_squared: float
+    mu_0: d_vector_to_real,
+    sigma_squared: float,
 ):
     """
     Computes the posterior mean and variance of the GP at a new point x.
@@ -51,8 +60,8 @@ def compute_posterior(
     k = compute_covariance_vector(X, x, theta_0, theta)
     K = compute_kernel_matrix(X, theta_0, theta)
     K += jnp.eye(X.shape[0]) * sigma_squared
-    m = mu_0*jnp.ones(X.shape[0])
-    mu_n = mu_0 + k.T @ solve(K, y - m)
+    m = vmap(mu_0)(X)
+    mu_n = mu_0(x) + k.T @ solve(K, y - m)
     sigma_squared_n = matern_kernel(x, x, theta_0, theta) - k.T @ solve(K, k)
 
     return mu_n, sigma_squared_n
