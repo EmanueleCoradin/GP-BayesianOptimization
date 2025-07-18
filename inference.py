@@ -6,7 +6,7 @@ from jax.scipy.optimize import minimize
 from jax.scipy.stats.norm import cdf, pdf
 from numpyro.infer import MCMC, NUTS
 import numpyro.distributions as dist
-from model import compute_kernel_matrix, mu_0
+from model import compute_kernel_matrix
 from config import EPSILON, TOL,  d_vector, n_vector, n_by_d_matrix, n_by_n_matrix, d_vector_to_real
 from typing import Callable, Dict
 from jax import jit
@@ -17,12 +17,12 @@ def marginal_likelihood(params: jnp.ndarray, X: n_by_d_matrix, y: n_vector):
     """
     Computes the negative log marginal likelihood of the GP model.
     """
-    theta_0 = params[0]
-    theta = params[1:-1]
+    mu_0  = params[0]
+    theta_0 = params[1]
+    theta = params[2:-1]
     sigma_squared = params[-1]
-    K = compute_kernel_matrix(X, theta_0,
-                              theta) + jnp.eye(X.shape[0]) * sigma_squared
-    m = vmap(mu_0)(X)
+    K = compute_kernel_matrix(X, theta_0, theta) + jnp.eye(X.shape[0]) * sigma_squared
+    m = mu_0*jnp.ones(X.shape[0])
     y_c = y - m
 
     term1 = -0.5 * y_c.T @ solve(K, y_c)
@@ -46,6 +46,7 @@ def exclude_existing_points(acquisition, X_new, X_train, threshold=1e-5):
     mask = min_dists > threshold
     safe_acquisition = jnp.where(mask, acquisition, 0)
     return safe_acquisition
+
 @jit
 def expected_improvement_acquisition_function(mu_n, sigma_n, tau):
     z = (mu_n - tau) / (sigma_n + EPSILON)
@@ -58,7 +59,7 @@ def compute_posterior_and_ei(
     posterior_fn: Callable,
     theta_0: float,
     theta: d_vector,
-    mu_0: d_vector_to_real,
+    mu_0: float,
     sigma_squared: float,
 ):
     posterior_means, posterior_vars = vmap(lambda x: posterior_fn(
@@ -75,23 +76,15 @@ def compute_posterior_and_ei(
 
     return posterior_means, posterior_stds, alpha_EI, x_next, idx_next
 
-def optimize_hyperparameters(X, y):
-    init_log_params = jnp.log(jnp.array([1.0, 1.0, 1.0]))
-    result = minimize(marginal_likelihood_log,
-                      init_log_params,
-                      args=(X, y),
-                      method="BFGS",
-                      tol=TOL)
-    return jnp.exp(result.x), result
-
 def numpyro_model(X, y=None):
     d = X.shape[1]
-    theta_0 = numpyro.sample("theta_0", dist.LogNormal(jnp.log(2.5), 0.3))
-    theta = numpyro.sample("theta", dist.LogNormal(jnp.log(0.5), 0.3).expand([d]))
-    sigma = numpyro.sample("sigma", dist.LogNormal(-5.0, 1.0))
-    K = compute_kernel_matrix(X, theta_0, theta)  # <-- pass theta vector directly
+    mu_0    = numpyro.sample("mu_0", dist.Uniform(-5e2, 5e2))
+    theta_0 = numpyro.sample("theta_0", dist.LogUniform(1e-2, 10))
+    theta   = numpyro.sample("theta", dist.LogUniform(1e-4, 1.).expand([d]))
+    sigma   = numpyro.sample("sigma", dist.LogUniform(1e-5, 1.))
+    K  = compute_kernel_matrix(X, theta_0, theta)  # <-- pass theta vector directly
     K += jnp.eye(X.shape[0]) * sigma**2
-    mu = jnp.ones(X.shape[0])
+    mu = jnp.ones(X.shape[0])*mu_0
     numpyro.sample("obs", dist.MultivariateNormal(mu, covariance_matrix=K), obs=y)
 
 
@@ -103,7 +96,7 @@ def run_mcmc(X, y, key, num_warmup=500, num_samples=1000):
     return mcmc.get_samples()
 '''
 
-def run_mcmc(X, y, key, num_chains=100, warmup=1000) -> Dict[str, jnp.ndarray]:
+def run_mcmc(X, y, key, num_chains=100, warmup=500) -> Dict[str, jnp.ndarray]:
     """
     Run N MCMC chains in parallel using NumPyro and return the final samples.
     """
@@ -114,7 +107,7 @@ def run_mcmc(X, y, key, num_chains=100, warmup=1000) -> Dict[str, jnp.ndarray]:
         num_samples=1,  # one sample per chain
         num_chains=num_chains,
         chain_method="parallel",  # truly parallel execution
-        progress_bar=True,
+        progress_bar=False,
     )
 
     mcmc.run(key, X=X, y=y)  # single call for all chains
@@ -128,13 +121,12 @@ def compute_posterior_from_mcmc(
     y_train: jnp.ndarray,
     X_new: jnp.ndarray,
     posterior_fn: Callable,
-    samples: dict,
-    mu_0: Callable,
+    samples: dict
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """
     Computes GP posterior mean and std using MCMC samples.
     """
-    def single_sample_prediction(theta_0, theta, sigma):
+    def single_sample_prediction(mu_0, theta_0, theta, sigma):
         theta_vec = jnp.atleast_1d(theta)  # ensures vector shape (d,) even if scalar
         return vmap(lambda x: posterior_fn(
             x, X_train, y_train, theta_0, theta_vec, mu_0, sigma**2
@@ -142,27 +134,29 @@ def compute_posterior_from_mcmc(
 
 
     means, variances = vmap(single_sample_prediction)(
-        samples["theta_0"], samples["theta"], samples["sigma"]
+        samples["mu_0"], samples["theta_0"], samples["theta"], samples["sigma"]
     )
 
     mean_gp = jnp.mean(means, axis=0)
     var_gp = jnp.mean(variances, axis=0) + jnp.var(means, axis=0)
     std_gp = jnp.sqrt(var_gp)
 
+    print(jnp.mean(samples["mu_0"]), jnp.mean(samples["theta_0"]), jnp.mean(samples["theta"]), jnp.mean(samples["sigma"]))
+
     return mean_gp, std_gp
 
 def average_acquisition_over_posterior_samples(
-    X_train, y_train, X_new, posterior_fn, mu_0, samples
+    X_train, y_train, X_new, posterior_fn, samples
 ):
     # samples["theta"] has shape (num_samples, d)
-    all_alpha = vmap(lambda theta_0, theta, sigma: compute_posterior_and_ei(
+    all_alpha = vmap(lambda mu_0, theta_0, theta, sigma: compute_posterior_and_ei(
         X_train, y_train, X_new, posterior_fn, theta_0, theta, mu_0, sigma**2)[2]
-    )(samples["theta_0"], samples["theta"], samples["sigma"])  # shape (num_samples, num_candidates)
+    )(samples["mu_0"], samples["theta_0"], samples["theta"], samples["sigma"])  # shape (num_samples, num_candidates)
 
     avg_alpha = jnp.mean(all_alpha, axis=0)
     safe_alpha = exclude_existing_points(avg_alpha, X_new, X_train, threshold=1e-5)
     idx_next = jnp.argmax(safe_alpha)
-    print(safe_alpha[::50])
+
     x_next = X_new[idx_next]
 
     return avg_alpha, x_next, idx_next

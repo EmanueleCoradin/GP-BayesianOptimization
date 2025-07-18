@@ -5,8 +5,9 @@ numpyro.set_host_device_count(100)
 import jax.numpy as jnp
 import jax.random as random
 
-from config import load_initial_data, NOISE_STD, KEY, f_true
-from model import compute_posterior, mu_0
+from config import load_initial_data, NOISE_STD, KEY 
+from config import f_rosenbrock, f_hosaki, f_bird
+from model import compute_posterior
 from inference import (
     run_mcmc,
     expected_improvement_acquisition_function,
@@ -19,9 +20,16 @@ from plotting import plot_gp_results
 # MAIN MCMC-BASED BAYESIAN OPTIMIZATION LOOP
 # ===============================
 
-X, y, X_new = load_initial_data()
-MAX_ITER = 10
+function_name = "f_rosenbrock"
+function_map = {
+    "f_rosenbrock": f_rosenbrock,
+    "f_hosaki": f_hosaki,
+    "f_bird": f_bird
+}
 
+f_true = function_map[function_name]
+X, y, X_new = load_initial_data(function_name)
+MAX_ITER = 10
 for iteration in range(MAX_ITER):
     print(f"\n--- Iteration {iteration + 1} ---")
 
@@ -34,13 +42,12 @@ for iteration in range(MAX_ITER):
         y_train=y,
         X_new=X_new,
         posterior_fn=compute_posterior,
-        mu_0=mu_0,
         samples=samples,
     )
 
     # Step 4: To visualize, compute posterior mean and std from averaged posterior (optional)
     posterior_means, posterior_stds = compute_posterior_from_mcmc(
-        X, y, X_new, compute_posterior, samples, mu_0
+        X, y, X_new, compute_posterior, samples
     )
 
     # Step 5: Plot results
@@ -58,9 +65,7 @@ for iteration in range(MAX_ITER):
     )
 
     # Step 6: Evaluate function at selected next point with noise
-    y_next = f_true(x_next[0]) + NOISE_STD * random.normal(
-        random.PRNGKey(iteration + 1000)
-    )
+    y_next = f_true(x_next.flatten()) + NOISE_STD * random.normal(KEY, shape=())
 
     # Step 7: Append new point to training data
     X = jnp.vstack([X, x_next.reshape(1, -1)])
