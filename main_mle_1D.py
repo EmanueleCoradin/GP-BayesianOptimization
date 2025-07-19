@@ -1,19 +1,19 @@
 import jax.numpy as jnp
 import jax.random as random
 
-from config import load_initial_data, NOISE_STD, TOL, KEY, f_hosaki
+from config import load_initial_data_1D, NOISE_STD, TOL, KEY, f_1D
 from model import compute_posterior, mu_0_factory
 from inference import compute_posterior_and_ei, marginal_likelihood_log
-from plotting import plot_gp_results
+from plotting import plot_gp_results_1D
 from jax.scipy.optimize import minimize
 
 # Load data
-X, y, X_new = load_initial_data()
+X, y, X_new = load_initial_data_1D()
 
 MAX_ITER = 10
 X_train = X
 y_train = y
-params_init_log = jnp.log(jnp.array([1.0, 1.0, 1.0, 1.0]))
+params_init_log = jnp.log(jnp.array([1.0, 1.0, 1.0]))
 
 for iteration in range(MAX_ITER):
     print(f"\n=== Iteration {iteration + 1} ===")
@@ -44,7 +44,7 @@ for iteration in range(MAX_ITER):
     print(f"Next sampling point: {x_next}")
 
     # Step 3: Plot results
-    plot_gp_results(
+    plot_gp_results_1D(
         X_train,
         y_train,
         X_new,
@@ -53,11 +53,11 @@ for iteration in range(MAX_ITER):
         alpha_EI,
         idx_next,
         noise_std=NOISE_STD,
-        true_fn=f_hosaki,
+        true_fn=f_1D,
     )
 
     # Step 4: Evaluate function at x_next (with noise)
-    y_next = f_hosaki(
+    y_next = f_1D(
         x_next.flatten()) + NOISE_STD * random.normal(KEY, shape=())
 
     # Step 5: Update training data

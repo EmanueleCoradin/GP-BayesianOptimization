@@ -36,10 +36,6 @@ def compute_covariance_vector(X: n_by_d_matrix, x: d_vector, theta_0: float,
     """Computes covariance vector k(x, X) between new point x and dataset X."""
     return vmap(lambda x_p: matern_kernel(x, x_p, theta_0, theta))(X)
 
-#def mu_0(y: n_vector) -> float:
-#    """Prior mean function, here constant 1.0."""
-#    return jnp.mean(y)
-
 def mu_0_factory(y_train: n_vector):
     mu = jnp.mean(y_train)
     return lambda x: mu

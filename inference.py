@@ -22,6 +22,7 @@ def marginal_likelihood(params: jnp.ndarray, X: n_by_d_matrix, y: n_vector):
     sigma_squared = params[-1]
     K = compute_kernel_matrix(X, theta_0,
                               theta) + jnp.eye(X.shape[0]) * sigma_squared
+    mu_0 = mu_0_factory(y)
     m = vmap(mu_0)(X)
     y_c = y - m
 
@@ -30,6 +31,7 @@ def marginal_likelihood(params: jnp.ndarray, X: n_by_d_matrix, y: n_vector):
     term3 = -0.5 * X.shape[0] * jnp.log(2 * jnp.pi)
 
     return -(term1 + term2 + term3)  # negative log-likelihood
+
 @jit
 def marginal_likelihood_log(params_log, X, y):
     """
