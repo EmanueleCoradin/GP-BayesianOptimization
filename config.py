@@ -53,6 +53,24 @@ def f_1D(x):
     """True function to be approximated."""
     return 2 * jnp.sin(1.5 * x) - 0.5 * x
 
+def f_goldstein_price(x: d_vector):
+    """
+    Goldstein–Price function.
+    Global minimum: f(0, -1) = 3
+    Domain: x, y in [-2, 2]
+    """
+    x, y = x[0], x[1]
+    term1 = (1 + (x + y + 1)**2 *
+             (19 - 14*x + 3*x**2 - 14*y + 6*x*y + 3*y**2))
+    
+    term2 = (30 + (2*x - 3*y)**2 *
+             (18 - 32*x + 12*x**2 + 48*y - 36*x*y + 27*y**2))
+    
+    return - jnp.log(term1) - jnp.log(term2)
+
+#def f_1D(x):
+#    return (6*x - 2)**2 * jnp.sin(12*x - 4)
+
 def load_initial_data(function: str = "f_hosaki", initial_points: int = 7):
     key1, key2 = random.split(KEY)
 
@@ -61,7 +79,8 @@ def load_initial_data(function: str = "f_hosaki", initial_points: int = 7):
         "f_rosenbrock": f_rosenbrock,
         "f_bird": f_bird,
         "f_ursem": f_ursem,
-        "f_svm": f_svm
+        "f_svm": f_svm,
+        "f_goldstein_price": f_goldstein_price,
     }
 
     bounds_map = {
@@ -69,7 +88,8 @@ def load_initial_data(function: str = "f_hosaki", initial_points: int = 7):
         "f_rosenbrock": (jnp.array([-1.0, -1.0]), jnp.array([0.5, 1.0])),
         "f_bird": (jnp.array([-6.0, -6.0]), jnp.array([6.0, 6.0])),
         "f_ursem":(jnp.array([-1.0,-1.0]),jnp.array([1.5,1.5])),
-        "f_svm": (jnp.array([-4.5, -6.5]), jnp.array([8.5, 8.5]))
+        "f_svm": (jnp.array([-4.5, -6.5]), jnp.array([8.5, 8.5])),
+        "f_goldstein_price": (jnp.array([-2., -2.]), jnp.array([2., 2.])),
     }
     # TEMP
     # key = random.PRNGKey(int(time.time()))

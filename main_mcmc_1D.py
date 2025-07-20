@@ -1,28 +1,23 @@
-
 import numpyro
 numpyro.set_host_device_count(100)
 
 import jax.numpy as jnp
 import jax.random as random
 
-from config import NOISE_STD, KEY, load_initial_data 
+from config import load_initial_data_1D, NOISE_STD, TOL, KEY, f_1D
 from model import compute_posterior, mu_0_factory
 from inference import (
     run_mcmc,
     compute_posterior_from_mcmc, 
     average_acquisition_over_posterior_samples,
 )
-from plotting import plot_gp_results
-from svm_explorer import SVMExplorer
+from plotting import plot_gp_results_1D
+from jax.scipy.optimize import minimize
 
-# ===============================
-# MAIN MCMC-BASED BAYESIAN OPTIMIZATION LOOP
-# ===============================
+# Load data
+X, y, X_new = load_initial_data_1D()
 
-function_name = "f_goldstein_price"  # or any other: "f_rosenbrock", ...
-f_true, X, y, X_new = load_initial_data(function_name, 7)
-
-MAX_ITER = 30
+MAX_ITER = 20
 patience = 10
 improvement_threshold  = 1e-5
 no_improvement_counter = 0
@@ -30,8 +25,11 @@ best_y = jnp.max(y)
 best_x = jnp.argmax(y)
 plot   = True
 
+X
+y
+
 for iteration in range(MAX_ITER):
-    print(f"\n--- Iteration {iteration + 1} ---")
+    print(f"\n=== Iteration {iteration + 1} ===")
 
     # Step 1: Run MCMC to sample hyperparameters
     key = random.PRNGKey(iteration)
@@ -46,14 +44,15 @@ for iteration in range(MAX_ITER):
         samples=samples,
     )
 
-    # Step 4: To visualize, compute posterior mean and std from averaged posterior (optional)
+   
+    # Step 2: Compute GP posterior and EI acquisition
     posterior_means, posterior_stds = compute_posterior_from_mcmc(
         X, y, X_new, compute_posterior, samples, mu_0_fn
     )
 
     # Step 5: Plot results
     if(plot):
-        plot_gp_results(
+        plot_gp_results_1D(
             X,
             y,
             X_new,
@@ -62,12 +61,12 @@ for iteration in range(MAX_ITER):
             avg_alpha,
             idx_next,
             noise_std=NOISE_STD,
-            true_fn=f_true,
+            true_fn=f_1D,
             title=f"Iteration {iteration + 1} of Bayesian Optimization (MCMC)",
         )
 
-    y_next = f_true(x_next.flatten()) + NOISE_STD * random.normal(key, shape=())
-    print(y_next, best_y)
+    y_next = f_1D(x_next.flatten()) + NOISE_STD * random.normal(key, shape=())
+
     # Early stopping check
     if y_next > best_y + improvement_threshold:
         best_x = jnp.argmax(y)
@@ -87,23 +86,15 @@ best_id = jnp.argmax(y)
 best_x  = X[best_id]
 best_y  = y[best_id]
 
-if function_name == "f_svm":
-    f_true = None
-    svm_explorer = SVMExplorer()
-    svm_explorer.load_data()
-    C = float(jnp.exp(best_x[0]))
-    gamma = float(jnp.exp(best_x[1]))
-    svm_explorer.plot_decision_boundary_with_params(C, gamma, title="SVM Margin at Best BO Hyperparameters")
 print('Maximum Found: ', best_x, best_y)
-plot_gp_results(
-    X,
-    y,
-    X_new,
-    posterior_means,
-    posterior_stds,
-    avg_alpha,
-    idx_next,
-    noise_std=NOISE_STD,
-    true_fn=f_true,
-    title=f"Iteration {iteration + 1} of Bayesian Optimization (MCMC)",
-)
+plot_gp_results_1D(
+        X,
+        y,
+        X_new,
+        posterior_means,
+        posterior_stds,
+        alpha_EI,
+        idx_next,
+        noise_std=NOISE_STD,
+        true_fn=f_1D,
+    )

@@ -2,7 +2,7 @@ from typing import Optional, Callable
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from config import EPSILON, d_vector, n_vector, n_by_d_matrix, n_by_n_matrix, d_vector_to_real
-from statsmodels.graphics.tsaplots import plot_acf
+#from statsmodels.graphics.tsaplots import plot_acf
 
 
 def plot_gp_results(
@@ -184,7 +184,7 @@ def plot_gp_results_1D(
     plt.tight_layout()
     plt.show()
 
-
+'''
 def plot_traces(samples_dict, param_name):
     chains = samples_dict[param_name]
     for i in range(chains.shape[0]):
@@ -200,3 +200,4 @@ def plot_acf_chain(chain, param_name, chain_idx=0):
     plt.title(f"Autocorrelation for {param_name} (chain {chain_idx})")
     plot_acf(chain[chain_idx], lags=50)
     plt.show()
+'''

@@ -109,3 +109,42 @@ class SVMExplorer:
         clf.fit(self.X_train, self.y_train)
         acc = accuracy_score(self.y_val, clf.predict(self.X_val))
         return acc
+
+    def plot_decision_boundary_with_params(self, C, gamma, on_val=True, title="SVM Margin with Given Hyperparameters"):
+        # Train a new model with given C and gamma
+        model = svm.SVC(C=C, gamma=gamma)
+        model.fit(self.X_train, self.y_train)
+
+        # Select data to visualize
+        X = self.X_val if on_val else self.X_train
+        y = self.y_val if on_val else self.y_train
+
+        # Create meshgrid
+        h = 0.02
+        x_min, x_max = X[:, 0].min() - .5, X[:, 0].max() + .5
+        y_min, y_max = X[:, 1].min() - .5, X[:, 1].max() + .5
+        xx, yy = np.meshgrid(np.arange(x_min, x_max, h),
+                            np.arange(y_min, y_max, h))
+
+        # Predict on mesh
+        Z = model.predict(np.c_[xx.ravel(), yy.ravel()])
+        Z = Z.reshape(xx.shape)
+
+        # Plot decision boundary
+        plt.figure(figsize=(6, 5))
+        plt.contourf(xx, yy, Z, alpha=0.3, cmap="viridis")
+        plt.scatter(X[:, 0], X[:, 1], c=y, edgecolors='k', cmap="viridis")
+
+        # Highlight support vectors
+        #lt.scatter(model.support_vectors_[:, 0],
+        #            model.support_vectors_[:, 1],
+        #           s=100, facecolors='none', edgecolors='red', label='Support Vectors')
+
+        plt.xlabel("Feature 1")
+        plt.ylabel("Feature 2")
+        plt.title(title)
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
+
+        return model
